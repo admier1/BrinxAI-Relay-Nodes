@@ -27,7 +27,7 @@ while true; do
 done
 
 # Save UUID to .env file
-echo "Saving node_UUID to .env file..."
+echo "💾 Saving node_UUID to .env file..."
 echo "NODE_UUID=$NODE_UUID" > .env
 
 echo "🔧 Installing Docker..."
@@ -71,17 +71,18 @@ docker run -d \
   --restart always \
   -v openvpn_data:/etc/openvpn \
   -e NODE_UUID=$NODE_UUID \
-  --label=wud.watch=true \
-  --label=wud.trigger=true \
-  --label=wud.image=$IMAGE_NAME \
+  --label=com.centurylinklabs.watchtower.enable=true \
   $IMAGE_NAME
 
-echo "📡 Deploying What's Up Docker (WUD) to watch only this image..."
-docker rm -f wud || true
+echo "📡 Deploying Watchtower to monitor and update the container..."
+docker rm -f watchtower || true
 docker run -d \
-  --name wud \
+  --name watchtower \
   --restart always \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  fmartinou/whats-up-docker
+  containrrr/watchtower \
+  --include-restarting \
+  --label-enable \
+  --schedule "0 0 4 * * *" # Run daily at 4 AM
 
-echo "✅ VPN relay (arm64) is running and WUD will auto-update it ONLY when a new version of '$IMAGE_NAME' is pushed!"
+echo "✅ VPN relay (arm64) is running and Watchtower will auto-update it daily when a new version of '$IMAGE_NAME' is available!"
