@@ -30,27 +30,29 @@ done
 echo "💾 Saving node_UUID to .env file..."
 echo "NODE_UUID=$NODE_UUID" > .env
 
-echo "🔧 Installing Docker..."
+# Install Docker if not present
+echo "🔧 Checking for Docker..."
 if ! command -v docker &> /dev/null; then
+    echo "📦 Installing Docker..."
     curl -fsSL https://get.docker.com | sh
     sudo usermod -aG docker $USER
-    echo "✅ Docker installed. Please log out and log back in to apply group changes."
-    exit 1
+    echo "⚠️ Please log out and back in or run 'newgrp docker' to apply Docker group permissions."
 else
-    echo "✅ Docker already installed"
+    echo "✅ Docker already installed."
 fi
 
-# Check Docker permissions
-if ! docker ps &> /dev/null; then
-    echo "❗ Your user does not have permission to access Docker. Either run this script with sudo or log out and back in to refresh group memberships."
+# Ensure script runs with proper permissions
+if ! docker info > /dev/null 2>&1; then
+    echo "❌ You don't have permission to run Docker. Try running this script with sudo or ensure your user is in the docker group."
     exit 1
 fi
 
+# Enable IP forwarding
 echo "🔐 Enabling IP forwarding..."
-sudo tee -a /etc/sysctl.conf <<< 'net.ipv4.ip_forward = 1'
-sudo sysctl -p
+sudo tee /etc/sysctl.d/99-ip-forward.conf <<< 'net.ipv4.ip_forward=1'
+sudo sysctl --system
 
-# 🧱 Set up NAT masquerading with iptables
+# Set up NAT masquerading
 EXT_IFACE=$(ip route get 1.1.1.1 | awk '{print $5; exit}')
 echo "🌍 Detected external interface: $EXT_IFACE"
 sudo iptables -t nat -A POSTROUTING -s 192.168.255.0/24 -o $EXT_IFACE -j MASQUERADE
@@ -60,17 +62,21 @@ sudo apt-get update
 sudo apt-get install -y iptables-persistent
 sudo netfilter-persistent save
 
+# Create Docker volume
 echo "🌐 Creating OpenVPN volume..."
-sudo docker volume create openvpn_data
+docker volume create openvpn_data
 
-echo "🐳 Pulling latest image from Docker Hub..."
-sudo docker pull $IMAGE_NAME
+# Pull Docker image
+echo "🐳 Pulling latest image: $IMAGE_NAME"
+docker pull $IMAGE_NAME
 
-echo "🧼 Removing old container if it exists..."
-sudo docker rm -f $CONTAINER_NAME || true
+# Remove old container
+echo "🧼 Removing old container if exists..."
+docker rm -f $CONTAINER_NAME || true
 
+# Run container
 echo "🚀 Running VPN relay container..."
-sudo docker run -d \
+docker run -d \
   --name $CONTAINER_NAME \
   --cap-add=NET_ADMIN \
   --device /dev/net/tun \
@@ -81,15 +87,16 @@ sudo docker run -d \
   --label=com.centurylinklabs.watchtower.enable=true \
   $IMAGE_NAME
 
+# Setup Watchtower
 echo "📡 Deploying Watchtower to monitor and update the container..."
-sudo docker rm -f watchtower || true
-sudo docker run -d \
+docker rm -f watchtower || true
+docker run -d \
   --name watchtower \
   --restart always \
   -v /var/run/docker.sock:/var/run/docker.sock \
   containrrr/watchtower \
   --include-restarting \
   --label-enable \
-  --schedule "0 0 4 * * *"
+  --schedule "0 0 4 * * *" # Run daily at 4 AM
 
-echo "✅ VPN relay (amd64) is running and Watchtower will auto-update it daily when a new version of '$IMAGE_NAME' is available!"
+echo "✅ VPN relay (amd64) is running. Watchtower will check for updates daily at 4 AM."
