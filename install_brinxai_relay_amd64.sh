@@ -34,9 +34,16 @@ echo "🔧 Installing Docker..."
 if ! command -v docker &> /dev/null; then
     curl -fsSL https://get.docker.com | sh
     sudo usermod -aG docker $USER
-    echo "✅ Docker installed"
+    echo "✅ Docker installed. Please log out and log back in to apply group changes."
+    exit 1
 else
     echo "✅ Docker already installed"
+fi
+
+# Check Docker permissions
+if ! docker ps &> /dev/null; then
+    echo "❗ Your user does not have permission to access Docker. Either run this script with sudo or log out and back in to refresh group memberships."
+    exit 1
 fi
 
 echo "🔐 Enabling IP forwarding..."
@@ -54,16 +61,16 @@ sudo apt-get install -y iptables-persistent
 sudo netfilter-persistent save
 
 echo "🌐 Creating OpenVPN volume..."
-docker volume create openvpn_data
+sudo docker volume create openvpn_data
 
 echo "🐳 Pulling latest image from Docker Hub..."
-docker pull $IMAGE_NAME
+sudo docker pull $IMAGE_NAME
 
 echo "🧼 Removing old container if it exists..."
-docker rm -f $CONTAINER_NAME || true
+sudo docker rm -f $CONTAINER_NAME || true
 
 echo "🚀 Running VPN relay container..."
-docker run -d \
+sudo docker run -d \
   --name $CONTAINER_NAME \
   --cap-add=NET_ADMIN \
   --device /dev/net/tun \
@@ -75,14 +82,14 @@ docker run -d \
   $IMAGE_NAME
 
 echo "📡 Deploying Watchtower to monitor and update the container..."
-docker rm -f watchtower || true
-docker run -d \
+sudo docker rm -f watchtower || true
+sudo docker run -d \
   --name watchtower \
   --restart always \
   -v /var/run/docker.sock:/var/run/docker.sock \
   containrrr/watchtower \
   --include-restarting \
   --label-enable \
-  --schedule "0 0 4 * * *" # Run daily at 4 AM
+  --schedule "0 0 4 * * *"
 
 echo "✅ VPN relay (amd64) is running and Watchtower will auto-update it daily when a new version of '$IMAGE_NAME' is available!"
