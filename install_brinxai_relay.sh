@@ -108,14 +108,28 @@ sudo iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>
 
 # Make iptables rules persistent
 echo "💾 Making iptables rules persistent..."
-if ! sudo apt-get update; then
-    echo "⚠️  Warning: apt-get update failed. Continuing anyway..."
-fi
-
-if ! sudo apt-get install -y iptables-persistent; then
-    echo "⚠️  Warning: Failed to install iptables-persistent. Rules may not persist after reboot."
+if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update || echo "⚠️  Warning: apt-get update failed. Continuing anyway..."
+    if sudo apt-get install -y iptables-persistent; then
+        sudo netfilter-persistent save
+    else
+        echo "⚠️  Warning: Failed to install iptables-persistent. Rules may not persist after reboot."
+    fi
+elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
+    PKG_MGR=$(command -v dnf || command -v yum)
+    sudo "$PKG_MGR" install -y iptables iptables-services
+    sudo iptables-save | sudo tee /etc/sysconfig/iptables > /dev/null
+    sudo systemctl enable --now iptables
+    echo "⚠️  $(basename "$PKG_MGR") based systems do not use iptables-persistent. Rules are saved to /etc/sysconfig/iptables and restored at boot by iptables.service."
+elif command -v pacman >/dev/null 2>&1; then
+    sudo pacman -Sy --noconfirm iptables iptables-nft iptables-persistent || true
+    if command -v netfilter-persistent >/dev/null 2>&1; then
+        sudo netfilter-persistent save
+    else
+        echo "⚠️  'netfilter-persistent' not available on Arch. Please ensure your firewall rules are saved via your preferred method."
+    fi
 else
-    sudo netfilter-persistent save
+    echo "⚠️  Unsupported package manager. Please ensure iptables rules persist after reboot."
 fi
 
 # Configure firewall rules for VPN and agent ports
