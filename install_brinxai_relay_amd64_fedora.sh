@@ -15,6 +15,7 @@ CONTAINER_NAME="brinxai_relay"
 RELAY_VOLUME="brinxai_relay_data"
 VPN_SUBNET="192.168.255.0/24"
 DEFAULT_VPN_PORT=1194
+DEFAULT_HEALTH_PORT=8080
 
 echo "🚀 BrinxAI Relay Node Installer (Single Container)"
 echo "==============================================="
@@ -47,6 +48,19 @@ elif [[ ! "$VPN_PORT" =~ ^[0-9]+$ ]] || [ "$VPN_PORT" -lt 1 ] || [ "$VPN_PORT" -
     VPN_PORT=$DEFAULT_VPN_PORT
 else
     echo "✅ VPN will run on port $VPN_PORT."
+fi
+
+# Ask for agent health port configuration
+echo ""
+read -p "Enter agent health port (default $DEFAULT_HEALTH_PORT): " HEALTH_PORT
+if [[ -z "$HEALTH_PORT" ]]; then
+    HEALTH_PORT=$DEFAULT_HEALTH_PORT
+    echo "ℹ️  Using default health port $HEALTH_PORT."
+elif [[ ! "$HEALTH_PORT" =~ ^[0-9]+$ ]] || [ "$HEALTH_PORT" -lt 1 ] || [ "$HEALTH_PORT" -gt 65535 ]; then
+    echo "❌ Invalid port number. Using default port $HEALTH_PORT."
+    HEALTH_PORT=$DEFAULT_HEALTH_PORT
+else
+    echo "✅ Health endpoint will run on port $HEALTH_PORT."
 fi
 
 # Ask if user wants Watchtower auto-updater
@@ -150,11 +164,11 @@ if command -v ufw >/dev/null 2>&1; then
         fi
         
         # Allow agent health port
-        if ! sudo ufw status | grep -q "8080.*ALLOW"; then
-            echo "  ✅ Adding agent health port 8080/tcp..."
-            sudo ufw allow 8080/tcp comment "BrinxAI Agent Health Endpoint"
+        if ! sudo ufw status | grep -q "$HEALTH_PORT.*ALLOW"; then
+            echo "  ✅ Adding agent health port $HEALTH_PORT/tcp..."
+            sudo ufw allow $HEALTH_PORT/tcp comment "BrinxAI Agent Health Endpoint"
         else
-            echo "  ✅ Agent health port 8080/tcp already allowed"
+            echo "  ✅ Agent health port $HEALTH_PORT/tcp already allowed"
         fi
         
         # Allow SSH if not already allowed
@@ -174,15 +188,15 @@ if command -v ufw >/dev/null 2>&1; then
             sudo ufw --force enable
             sudo ufw allow ssh comment "SSH Access"
             sudo ufw allow $VPN_PORT/udp comment "BrinxAI VPN Server"
-            sudo ufw allow 8080/tcp comment "BrinxAI Agent Health Endpoint"
+            sudo ufw allow $HEALTH_PORT/tcp comment "BrinxAI Agent Health Endpoint"
             echo "  ✅ UFW enabled and configured"
         else
-            echo "  ⚠️  Continuing without UFW. Make sure ports $VPN_PORT/udp and 8080/tcp are accessible."
+            echo "  ⚠️  Continuing without UFW. Make sure ports $VPN_PORT/udp and $HEALTH_PORT/tcp are accessible."
         fi
     fi
 else
     echo "📋 UFW not installed, using iptables rules only"
-    echo "⚠️  Make sure ports $VPN_PORT/udp and 8080/tcp are accessible through any other firewall"
+    echo "⚠️  Make sure ports $VPN_PORT/udp and $HEALTH_PORT/tcp are accessible through any other firewall"
 fi
 
 # Stop and remove existing container
@@ -243,7 +257,7 @@ $DOCKER_CMD run -d \
     --name $CONTAINER_NAME \
     --restart always \
     -p $VPN_PORT:1194/udp \
-    -p 8080:8080/tcp \
+    -p $HEALTH_PORT:8080/tcp \
     --cap-add=NET_ADMIN \
     --device /dev/net/tun \
     -v $RELAY_VOLUME:/etc/openvpn \
@@ -303,7 +317,7 @@ echo "  - Node UUID: $NODE_UUID"
 echo "  - Public IP: $PUBLIC_IP"
 echo "  - VPN Port: $VPN_PORT/udp"
 echo "  - VPN Subnet: $VPN_SUBNET"
-echo "  - Agent Health Check: http://localhost:8080/health"
+echo "  - Agent Health Check: http://localhost:$HEALTH_PORT/health"
 
 echo ""
 echo "🔧 Management Commands:"
@@ -315,7 +329,7 @@ echo "  Add new client:        docker exec $CONTAINER_NAME easyrsa build-client-
 
 echo ""
 echo "🔍 Health Check:"
-curl -s http://localhost:8080/health | python3 -m json.tool 2>/dev/null || echo "Agent health check endpoint not ready yet"
+curl -s http://localhost:$HEALTH_PORT/health | python3 -m json.tool 2>/dev/null || echo "Agent health check endpoint not ready yet"
 
 echo ""
 echo "✅ Installation completed successfully!"
